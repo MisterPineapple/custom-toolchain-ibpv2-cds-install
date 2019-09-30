@@ -280,6 +280,80 @@ function install_fabric_chaincode {
 }
 
 #######################################
+# Instantiates chaincode object with specified id and version in target channel, 
+# using optional initial arguments
+# Globals:
+#   get: BLOCKCHAIN_API
+#   get: BLOCKCHAIN_KEY
+#   get: BLOCKCHAIN_SECRET
+# Arguments:
+#   CC_ID:      Name to label instance with
+#   CC_VERSION: Version to label instance with
+#   CC_TYPE:    Type of chaincode to instantiate (golang|node)
+#   CHANNEL:    Channel for instance to be constructed in
+#   INIT_ARGS:  (optional) Constructor arguments
+# Returns:
+#   err_no:
+#     2 = chaincode instance exists with specified id and version
+#     1 = unrecognized error returned by IBM Blockchain platform api
+#     0 = chaincode successfully instantiated with specified id and version
+#######################################
+function instantiate_fabric_chaincode {
+    local CC_ID=$1
+    local CC_VERSION=$2
+    local CC_TYPE=$3
+    local CHANNEL=$4
+    local INIT_ARGS=$5
+
+    cat << EOF > request.json
+{
+    "chaincode_id": "${CC_ID}",
+    "chaincode_version": "${CC_VERSION}",
+    "chaincode_type": "${CC_TYPE}",
+    "chaincode_arguments": [${INIT_ARGS}]
+}
+EOF
+
+    echo "Instantiating fabric contract with id '$CC_ID' version '$CC_VERSION' and chaincode type '$CC_TYPE' on channel '$CHANNEL' with arguments '$INIT_ARGS'..."
+
+    OUTPUT=$(do_curl \
+        -X POST \
+        -H 'Content-Type: application/json' \
+        -u "${BLOCKCHAIN_KEY}:${BLOCKCHAIN_SECRET}" \
+        --data-binary @request.json \
+        "${BLOCKCHAIN_API}/channels/${CHANNEL}/chaincode/instantiate")
+    
+    local do_curl_status=$?
+
+    rm -f request.json
+
+    if [[ "${OUTPUT}" == *"Failed to establish a backside connection"* || "${OUTPUT}" == *"premature execution"* ]]
+    then
+        echo "Connection problem encountered, delaying 30s and trying again..."
+        sleep 30
+        instantiate_fabric_chaincode "$@"
+        return $?
+    fi
+
+    if [ $do_curl_status -eq 1 ]
+    then
+        echo "Failed to instantiate fabric contract:"
+        if [[ "${OUTPUT}" == *"version already exists for chaincode"* ]]
+        then
+            echo "Chaincode instance already exists with id '${CC_ID}' version '${CC_VERSION}' and chaincode type '$CC_TYPE'"
+            return 2
+        else
+            echo "Unrecognized error returned:"
+            echo "${OUTPUT}"
+            return 1
+        fi
+    fi
+
+    echo "Successfully instantiated fabric contract."
+    return 0
+}
+
+#######################################
 # Parses deployment configuration and makes corresponding install and 
 # instatiate requests
 # Globals:
@@ -327,13 +401,13 @@ function deploy_fabric_chaincode {
                 fi
             fi
 
-            # if $CC_INSTANTIATE
-            # then
-            #     for channel in $CC_CHANNELS
-            #     do
-            #         instantiate_fabric_chaincode "$CC_ID" "$CC_VERSION" "$CC_TYPE" "$channel" "$CC_INIT_ARGS"
-            #     done  
-            # fi
+            if $CC_INSTANTIATE
+            then
+                for channel in $CC_CHANNELS
+                do
+                    instantiate_fabric_chaincode "$CC_ID" "$CC_VERSION" "$CC_TYPE" "$channel" "$CC_INIT_ARGS"
+                done  
+            fi
             cc_index=$((cc_index + 1))
         done
     done
