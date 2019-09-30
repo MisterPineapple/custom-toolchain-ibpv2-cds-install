@@ -6,14 +6,10 @@
 # and the platform 
 
 stage="$1"
-echo "aaaaaaaaaaaaaaaa"
-echo $1
 platform="$2"
-echo "bbbbbbbbbbbbbbbb"
-echo $2
 executable_script=""
 
-if [[ "${stage}" != "build" ]] && [[ "${stage}" != "test" ]] && [[ "${stage}" != "deploy" ]]; then
+if [[ "${stage}" != "install" ]]; then
     echo "Invalid stage: ${stage} selected"
     exit 1
 fi
